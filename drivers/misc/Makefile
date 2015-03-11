@@ -79,3 +79,5 @@ obj-$(CONFIG_SLIMPORT_ANX7808)	+= slimport_anx7808/
 
 # 20130602, BugID3067: add NFC feature and PN65O checking to BSP1744
 obj-$(CONFIG_NXP_NFC_PN65N)	+= pn65n.o
+
+obj-$(CONFIG_UID_CPUTIME)	+= uid_cputime.o
