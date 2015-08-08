@@ -139,6 +139,12 @@ static v_VOID_t wlan_hdd_tdls_discover_peer_cb( v_PVOID_t userData )
     if (NULL == pHddTdlsCtx->pAdapter)
         return;
 
+    if (WLAN_HDD_ADAPTER_MAGIC != pHddTdlsCtx->pAdapter->magic)
+    {
+        VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_ERROR,
+               FL("pAdapter  has invalid magic"));
+        return;
+    }
     pHddCtx = WLAN_HDD_GET_CTX( pHddTdlsCtx->pAdapter );
 
     if (NULL == pHddCtx)
@@ -252,9 +258,15 @@ static v_VOID_t wlan_hdd_tdls_update_peer_cb( v_PVOID_t userData )
     if ((NULL == pHddTdlsCtx))
         return;
 
-    if (NULL == pHddTdlsCtx->pAdapter)
+    if (NULL == pHddTdlsCtx->pAdapter || (NULL == pHddTdlsCtx->pAdapter))
         return;
 
+    if (WLAN_HDD_ADAPTER_MAGIC != pHddTdlsCtx->pAdapter->magic)
+    {
+        VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_ERROR,
+               FL("pAdapter  has invalid magic"));
+        return;
+    }
     pHddCtx = WLAN_HDD_GET_CTX( pHddTdlsCtx->pAdapter );
 
     if (NULL == pHddCtx)
@@ -478,6 +490,12 @@ static v_VOID_t wlan_hdd_tdls_discovery_timeout_peer_cb(v_PVOID_t userData)
     if ((NULL == pHddTdlsCtx) || (NULL == pHddTdlsCtx->pAdapter) )
         return;
 
+    if (WLAN_HDD_ADAPTER_MAGIC != pHddTdlsCtx->pAdapter->magic)
+    {
+        VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_ERROR,
+               FL("pAdapter  has invalid magic"));
+        return;
+    }
     pHddCtx = WLAN_HDD_GET_CTX( pHddTdlsCtx->pAdapter );
 
     if (NULL == pHddCtx)
@@ -710,9 +728,19 @@ void wlan_hdd_tdls_exit(hdd_adapter_t *pAdapter)
      */
 
     pHddCtx = WLAN_HDD_GET_CTX( pAdapter );
-    if (NULL == pHddCtx)
+
+    if (NULL == pHddCtx || NULL == pHddCtx->cfg_ini)
     {
-        return;
+        VOS_TRACE( VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_ERROR,
+                "%s: HDD context is Null", __func__);
+        return ;
+    }
+
+    if (pHddCtx->isLogpInProgress)
+    {
+        VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_ERROR,
+                  "%s: LOGP in Progress. Ignore!!!", __func__);
+        return ;
     }
 
     pHddTdlsCtx = WLAN_HDD_GET_TDLS_CTX_PTR(pAdapter);
@@ -732,7 +760,8 @@ void wlan_hdd_tdls_exit(hdd_adapter_t *pAdapter)
     wlan_hdd_tdls_free_list(pHddTdlsCtx);
 
     wlan_hdd_tdls_free_scan_request(&pHddCtx->tdls_scan_ctxt);
-
+    pHddTdlsCtx->magic = 0;
+    pHddTdlsCtx->pAdapter = NULL;
     vos_mem_free(pHddTdlsCtx);
     pAdapter->sessionCtx.station.pHddTdlsCtx = NULL;
     pHddTdlsCtx = NULL;
