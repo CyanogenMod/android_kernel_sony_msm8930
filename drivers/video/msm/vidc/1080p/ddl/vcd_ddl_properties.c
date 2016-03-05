@@ -322,7 +322,11 @@ static u32 ddl_set_dec_property(struct ddl_client_context *ddl,
 				ddl_set_default_decoder_buffer_req(decoder,
 					true);
 			}
-			DDL_MSG_HIGH("set VCD_I_FRAME_SIZE width = %d"
+			if (decoder->cont_mode) {
+				decoder->adaptive_width = decoder->client_frame_size.width;
+				decoder->adaptive_height = decoder->client_frame_size.height;
+			}
+			DDL_MSG_LOW("set VCD_I_FRAME_SIZE width = %d"
 				" height = %d\n",
 				frame_size->width, frame_size->height);
 			vcd_status = VCD_S_SUCCESS;
@@ -1226,6 +1230,27 @@ static u32 ddl_set_enc_property(struct ddl_client_context *ddl,
 		}
 		break;
 	}
+	case VCD_I_PIC_ORDER_CNT_TYPE:
+	{
+		struct vcd_property_pic_order_cnt_type *poc =
+			(struct vcd_property_pic_order_cnt_type *)
+				property_value;
+		if (sizeof(struct vcd_property_pic_order_cnt_type) ==
+			property_hdr->sz &&
+			encoder->codec.codec == VCD_CODEC_H264 &&
+			(poc->poc_type == 0 || poc->poc_type == 2)) {
+			if (encoder->i_period.b_frames &&
+				poc->poc_type) {
+				DDL_MSG_HIGH("bframes = %d. Setting poc to 0",
+					encoder->i_period.b_frames);
+				encoder->pic_order_cnt_type = 0;
+			} else {
+				encoder->pic_order_cnt_type = poc->poc_type;
+			}
+			vcd_status = VCD_S_SUCCESS;
+		}
+		break;
+	}
 	default:
 		DDL_MSG_ERROR("%s: INVALID ID 0x%x\n", __func__,
 			(int)property_hdr->prop_id);
@@ -1826,6 +1851,15 @@ static u32 ddl_get_enc_property(struct ddl_client_context *ddl,
 			vcd_status = VCD_S_SUCCESS;
 		}
 	break;
+	case VCD_I_PIC_ORDER_CNT_TYPE:
+		if (sizeof(struct vcd_property_pic_order_cnt_type) ==
+			property_hdr->sz) {
+			((struct vcd_property_pic_order_cnt_type *)
+				property_value)->poc_type
+					= encoder->pic_order_cnt_type;
+			vcd_status = VCD_S_SUCCESS;
+		}
+		break;
 	default:
 		DDL_MSG_ERROR("%s: unknown prop_id = 0x%x", __func__,
 			property_hdr->prop_id);
@@ -1873,6 +1907,12 @@ static u32 ddl_set_enc_dynamic_property(struct ddl_client_context *ddl,
 			property_hdr->sz) {
 			encoder->i_period = *i_period;
 			dynamic_prop_change = DDL_ENC_CHANGE_IPERIOD;
+			if (encoder->i_period.b_frames &&
+				encoder->pic_order_cnt_type) {
+				DDL_MSG_HIGH("bframes = %d. Setting poc to 0",
+					encoder->i_period.b_frames);
+				encoder->pic_order_cnt_type = 0;
+			}
 			vcd_status = VCD_S_SUCCESS;
 		}
 	}
@@ -2021,6 +2061,8 @@ void ddl_set_default_dec_property(struct ddl_client_context *ddl)
 	decoder->output_order = VCD_DEC_ORDER_DISPLAY;
 	decoder->field_needed_for_prev_ip = 0;
 	decoder->cont_mode = 0;
+	decoder->adaptive_width = 0;
+	decoder->adaptive_height = 0;
 	decoder->reconfig_detected = false;
 	decoder->dmx_disable = false;
 	ddl_set_default_metadata_flag(ddl);
@@ -2330,7 +2372,7 @@ u32 ddl_set_default_decoder_buffer_req(struct ddl_decoder_data *decoder,
 	}
 	input_buf_req->align = DDL_LINEAR_BUFFER_ALIGN_BYTES;
 	decoder->min_input_buf_req = *input_buf_req;
-	if (frame_height_actual) {
+	if (frame_height_actual && frame_size->height > MDP_MIN_TILE_HEIGHT) {
 		frame_size->height = frame_height_actual;
 		ddl_calculate_stride(frame_size, !decoder->progressive_only);
 	}

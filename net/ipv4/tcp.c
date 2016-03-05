@@ -2531,7 +2531,7 @@ void tcp_get_info(const struct sock *sk, struct tcp_info *info)
 	if (sk->sk_socket) {
 		struct file *filep = sk->sk_socket->file;
 		if (filep)
-			info->tcpi_count = atomic_read(&filep->f_count);
+			info->tcpi_count = file_count(filep);
 	}
 }
 EXPORT_SYMBOL_GPL(tcp_get_info);
@@ -3395,7 +3395,7 @@ int tcp_nuke_addr(struct net *net, struct sockaddr *addr)
 		return -EAFNOSUPPORT;
 	}
 
-	for (bucket = 0; bucket < tcp_hashinfo.ehash_mask; bucket++) {
+	for (bucket = 0; bucket <= tcp_hashinfo.ehash_mask; bucket++) {
 		struct hlist_nulls_node *node;
 		struct sock *sk;
 		spinlock_t *lock = inet_ehash_lockp(&tcp_hashinfo, bucket);

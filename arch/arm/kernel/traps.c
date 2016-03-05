@@ -482,12 +482,10 @@ asmlinkage void bad_mode(struct pt_regs *regs, int reason)
 
 static int bad_syscall(int n, struct pt_regs *regs)
 {
-	struct thread_info *thread = current_thread_info();
 	siginfo_t info;
 
-	if ((current->personality & PER_MASK) != PER_LINUX &&
-	    thread->exec_domain->handler) {
-		thread->exec_domain->handler(n, regs);
+	if ((current->personality & PER_MASK) != PER_LINUX) {
+		send_sig(SIGSEGV, current, 1);
 		return regs->ARM_r0;
 	}
 
@@ -543,6 +541,10 @@ asmlinkage int arm_syscall(int no, struct pt_regs *regs)
 {
 	struct thread_info *thread = current_thread_info();
 	siginfo_t info;
+
+	/* Emulate/fallthrough. */
+	if (no == -1)
+		return regs->ARM_r0;
 
 	if ((no >> 16) != (__ARM_NR_BASE>> 16))
 		return bad_syscall(no, regs);

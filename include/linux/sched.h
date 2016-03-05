@@ -93,7 +93,6 @@ struct sched_param {
 
 #include <asm/processor.h>
 
-struct exec_domain;
 struct futex_pi_state;
 struct robust_list_head;
 struct bio_list;
@@ -531,6 +530,7 @@ struct signal_struct {
 	atomic_t		sigcnt;
 	atomic_t		live;
 	int			nr_threads;
+	struct list_head	thread_head;
 
 	wait_queue_head_t	wait_chldexit;	/* for wait4() */
 
@@ -1343,7 +1343,6 @@ struct task_struct {
 				 * execve */
 	unsigned in_iowait:1;
 
-
 	/* Revert to default priority/policy when forking */
 	unsigned sched_reset_on_fork:1;
 	unsigned sched_contributes_to_load:1;
@@ -1352,6 +1351,8 @@ struct task_struct {
 	/* IRQ handler threads */
 	unsigned irq_thread:1;
 #endif
+
+	unsigned long atomic_flags; /* Flags needing atomic access. */
 
 	pid_t pid;
 	pid_t tgid;
@@ -1386,6 +1387,7 @@ struct task_struct {
 	/* PID/PID hash table linkage. */
 	struct pid_link pids[PIDTYPE_MAX];
 	struct list_head thread_group;
+	struct list_head thread_node;
 
 	struct completion *vfork_done;		/* for vfork() */
 	int __user *set_child_tid;		/* CLONE_CHILD_SETTID */
@@ -1452,7 +1454,7 @@ struct task_struct {
 	uid_t loginuid;
 	unsigned int sessionid;
 #endif
-	seccomp_t seccomp;
+	struct seccomp seccomp;
 
 /* Thread group tracking */
    	u32 parent_exec_id;
@@ -1863,6 +1865,19 @@ extern int task_free_unregister(struct notifier_block *n);
 #define tsk_used_math(p) ((p)->flags & PF_USED_MATH)
 #define used_math() tsk_used_math(current)
 
+/* Per-process atomic flags. */
+#define PFA_NO_NEW_PRIVS 0x00000001	/* May not gain new privileges. */
+
+static inline bool task_no_new_privs(struct task_struct *p)
+{
+	return test_bit(PFA_NO_NEW_PRIVS, &p->atomic_flags);
+}
+
+static inline void task_set_no_new_privs(struct task_struct *p)
+{
+	set_bit(PFA_NO_NEW_PRIVS, &p->atomic_flags);
+}
+
 /*
  * task->jobctl flags
  */
@@ -2147,11 +2162,6 @@ extern void set_curr_task(int cpu, struct task_struct *p);
 
 void yield(void);
 
-/*
- * The default (Linux) execution domain.
- */
-extern struct exec_domain	default_exec_domain;
-
 union thread_union {
 	struct thread_info thread_info;
 	unsigned long stack[THREAD_SIZE/sizeof(long)];
@@ -2373,6 +2383,16 @@ extern bool current_is_single_threaded(void);
 
 #define while_each_thread(g, t) \
 	while ((t = next_thread(t)) != g)
+
+#define __for_each_thread(signal, t)	\
+	list_for_each_entry_rcu(t, &(signal)->thread_head, thread_node)
+
+#define for_each_thread(p, t)		\
+	__for_each_thread((p)->signal, t)
+
+/* Careful: this is a double loop, 'break' won't work as expected. */
+#define for_each_process_thread(p, t)	\
+	for_each_process(p) for_each_thread(p, t)
 
 static inline int get_nr_threads(struct task_struct *tsk)
 {
@@ -2725,6 +2745,8 @@ static inline void set_task_cpu(struct task_struct *p, unsigned int cpu)
 }
 
 #endif /* CONFIG_SMP */
+
+extern struct atomic_notifier_head migration_notifier_head;
 
 extern long sched_setaffinity(pid_t pid, const struct cpumask *new_mask);
 extern long sched_getaffinity(pid_t pid, struct cpumask *mask);

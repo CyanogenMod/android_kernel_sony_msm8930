@@ -1230,7 +1230,7 @@ EXPORT_SYMBOL(install_exec_creds);
 /*
  * determine how safe it is to execute the proposed program
  * - the caller must hold ->cred_guard_mutex to protect against
- *   PTRACE_ATTACH
+ *   PTRACE_ATTACH or seccomp thread-sync
  */
 static int check_unsafe_exec(struct linux_binprm *bprm)
 {
@@ -1244,6 +1244,13 @@ static int check_unsafe_exec(struct linux_binprm *bprm)
 		else
 			bprm->unsafe |= LSM_UNSAFE_PTRACE;
 	}
+
+	/*
+	 * This isn't strictly necessary, but it makes it harder for LSMs to
+	 * mess up.
+	 */
+	if (task_no_new_privs(current))
+		bprm->unsafe |= LSM_UNSAFE_NO_NEW_PRIVS;
 
 	n_fs = 1;
 	spin_lock(&p->fs->lock);
@@ -1268,6 +1275,45 @@ static int check_unsafe_exec(struct linux_binprm *bprm)
 	return res;
 }
 
+static void bprm_fill_uid(struct linux_binprm *bprm)
+{
+	struct inode *inode;
+	unsigned int mode;
+	uid_t uid;
+	gid_t gid;
+
+	/* clear any previous set[ug]id data from a previous binary */
+	bprm->cred->euid = current_euid();
+	bprm->cred->egid = current_egid();
+
+	if (bprm->file->f_path.mnt->mnt_flags & MNT_NOSUID)
+		return;
+
+	inode = bprm->file->f_path.dentry->d_inode;
+	mode = ACCESS_ONCE(inode->i_mode);
+	if (!(mode & (S_ISUID|S_ISGID)))
+		return;
+
+	/* Be careful if suid/sgid is set */
+	mutex_lock(&inode->i_mutex);
+
+	/* reload atomically mode/uid/gid now that lock held */
+	mode = inode->i_mode;
+	uid = inode->i_uid;
+	gid = inode->i_gid;
+	mutex_unlock(&inode->i_mutex);
+
+	if (mode & S_ISUID) {
+		bprm->per_clear |= PER_CLEAR_ON_SETID;
+		bprm->cred->euid = uid;
+	}
+
+	if ((mode & (S_ISGID | S_IXGRP)) == (S_ISGID | S_IXGRP)) {
+		bprm->per_clear |= PER_CLEAR_ON_SETID;
+		bprm->cred->egid = gid;
+	}
+}
+
 /* 
  * Fill the binprm structure from the inode. 
  * Check permissions, then read the first 128 (BINPRM_BUF_SIZE) bytes
@@ -1276,36 +1322,12 @@ static int check_unsafe_exec(struct linux_binprm *bprm)
  */
 int prepare_binprm(struct linux_binprm *bprm)
 {
-	umode_t mode;
-	struct inode * inode = bprm->file->f_path.dentry->d_inode;
 	int retval;
 
-	mode = inode->i_mode;
 	if (bprm->file->f_op == NULL)
 		return -EACCES;
 
-	/* clear any previous set[ug]id data from a previous binary */
-	bprm->cred->euid = current_euid();
-	bprm->cred->egid = current_egid();
-
-	if (!(bprm->file->f_path.mnt->mnt_flags & MNT_NOSUID)) {
-		/* Set-uid? */
-		if (mode & S_ISUID) {
-			bprm->per_clear |= PER_CLEAR_ON_SETID;
-			bprm->cred->euid = inode->i_uid;
-		}
-
-		/* Set-gid? */
-		/*
-		 * If setgid is set but no group execute bit then this
-		 * is a candidate for mandatory locking, not a setgid
-		 * executable.
-		 */
-		if ((mode & (S_ISGID | S_IXGRP)) == (S_ISGID | S_IXGRP)) {
-			bprm->per_clear |= PER_CLEAR_ON_SETID;
-			bprm->cred->egid = inode->i_gid;
-		}
-	}
+	bprm_fill_uid(bprm);
 
 	/* fill in binprm security blob */
 	retval = security_bprm_set_creds(bprm);

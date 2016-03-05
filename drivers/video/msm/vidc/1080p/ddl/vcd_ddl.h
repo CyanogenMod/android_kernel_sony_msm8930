@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2013, 2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -348,6 +348,7 @@ struct ddl_encoder_data{
 	u32 avc_delimiter_enable;
 	u32 vui_timinginfo_enable;
 	u32 bitstream_restrict_enable;
+	u32 pic_order_cnt_type;
 };
 struct ddl_decoder_data {
 	struct ddl_codec_data_hdr  hdr;
@@ -395,6 +396,8 @@ struct ddl_decoder_data {
 	struct ddl_mp2_datadumpenabletype mp2_datadump_enable;
 	u32 mp2_datadump_status;
 	u32 extn_user_data_enable;
+	u32 adaptive_width;
+	u32 adaptive_height;
 };
 union ddl_codec_data{
 	struct ddl_codec_data_hdr  hdr;
